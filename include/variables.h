@@ -19,6 +19,9 @@
 // microwave
 #define radarPin 20
 
+// button
+#define buttonPin 14
+
 // led
 #define ledPin 2
 
