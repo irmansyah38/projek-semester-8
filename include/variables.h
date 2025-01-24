@@ -25,6 +25,10 @@
 // led
 #define ledPin 2
 
+// wifi
+#define SSID "irmansyah"
+#define PASSWORD "12345678"
+
 extern const char index_html[];
 
 #endif
