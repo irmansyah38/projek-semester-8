@@ -2,7 +2,7 @@
 #define VARIABLES_H
 
 // time
-#define interval 1000
+#define INTERVAL 1000
 
 // oled
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
@@ -10,20 +10,42 @@
 #define OLED_RESET -1    // Reset pin # (or -1 if sharing Arduino reset pin)
 
 // lcd
-#define lcdColumns 16
-#define lcdRows 2
+#define lCD_COLUMNS 16
+#define lCD_ROWS 2
 
 // telegram
-#define myDomain "api.telegram.org"
+#define TELEGRAM_DOMAIN "api.telegram.org"
 
 // microwave
-#define radarPin 20
+#define RADAR_PIN GPIO_NUM_20
 
 // button
-#define buttonPin 14
+#define Button_PIN GPIO_NUM_14
 
 // led
-#define ledPin 2
+#define LED_PIN GPIO_NUM_2
+
+// kondisi esp
+extern int condition_main;
+
+// wifi
+extern String ip;
+
+// oled
+extern String last_sentance;
+
+// telegram
+extern String bot_token;
+extern String chat_id;
+
+// disable sleep
+extern unsigned long last_time;
+
+// website
+extern bool web_condition;
+
+// nomor handphone
+extern String nomor_handphone;
 
 extern const char index_html[];
 

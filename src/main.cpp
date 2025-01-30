@@ -18,36 +18,9 @@
 #include <eloquent_esp32cam.h>
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_GFX.h>
-#include <Arduino.h>
 
 using eloq::camera;
 using eloq::tinyml::zoo::personDetection;
-
-// kondisi esp
-int conditionMain = 0;
-
-// wifi
-String ip;
-
-// oled
-String lastSentance;
-
-// telegram
-String botToken;
-String chatID;
-
-// disable sleep
-bool disableSleep = true;
-unsigned long lastTime;
-
-// tombol
-volatile bool isReset = false; // Flag untuk memeriksa apakah ISR dipicu
-
-// website
-bool webCondition = true;
-
-// nomor handphone
-String nomorHandphone;
 
 // object
 WiFiManager wm;
@@ -90,20 +63,69 @@ void IRAM_ATTR handleButtonInterrupt();
 // sleep
 void modeSleep();
 
-// configuration
-void afterConfiguration();
+void mainProgram();
 
 void setup()
 {
   Serial.begin(115200);
-  pinMode(ledPin, OUTPUT);
-  setupButton();
+  pinMode(LED_PIN, OUTPUT);
+  setupRadar();
   setupOLED();
   displayOled("OLED OK !");
   delay(5000);
-  setupRadar();
-  displayOled("Sensor    OK !");
+
+  // mengecek data yang tersimpan
+  int kondisi_penyimpanan = setupNVS();
+  if (kondisi_penyimpanan == 0)
+  {
+    Serial.println("Token & NO HP tidak ada");
+    displayOled("Token &   NO HP     tidak ada");
+  }
+  else if (kondisi_penyimpanan == 3)
+  {
+    Serial.println("NO HP sudah ada");
+    displayOled("NO HP     sudah ada");
+    condition_main = 3;
+  }
+  else if (kondisi_penyimpanan == 4)
+  {
+    Serial.println("Token & NO HP sudah ada");
+    displayOled("Token &   NO HP     sudah ada");
+    condition_main = 4;
+  }
+
   delay(5000);
+  if (condition_main >= 3)
+  {
+    setupButton();
+    displayOled("Tekan     reset");
+    Serial.println("Tekan reset");
+    delay(2000);
+    if (condition_main == 3)
+    {
+      displayOled("Untuk     menghapus nomor     handphone");
+      Serial.println("Untuk menghapus nomor handphone");
+    }
+    else if (condition_main == 4)
+    {
+      displayOled("Untuk     menghapus nomor HP &telegram");
+      Serial.println("Untuk menghapus nomor HP & telegram");
+    }
+    last_time = millis();
+    while (true)
+    {
+      int buttonState = digitalRead(Button_PIN);
+      if (buttonState == HIGH)
+      {
+        resetAll();
+      }
+
+      if (millis() - last_time > INTERVAL * 20)
+      {
+        break;
+      }
+    }
+  }
 
   // camera settings
   // replace with your own model!
@@ -124,32 +146,10 @@ void setup()
   while (!personDetection.begin().isOk())
     Serial.println(personDetection.exception.toString());
   Serial.println("Model OK");
-  displayOled("Model OK!");
-  delay(5000);
 
-  // mengecek data yang tersimpan
-  int kondisiNVS = setupNVS();
-  if (kondisiNVS == 0)
+  if (condition_main != 3)
   {
-    Serial.println("Token & NO HP tidak ada");
-    displayOled("Token &   NO HP     tidak ada");
-  }
-  else if (kondisiNVS == 3)
-  {
-    Serial.println("NO HP sudah ada");
-    displayOled("NO HP     sudah ada");
-    conditionMain = 3;
-  }
-  else if (kondisiNVS == 4)
-  {
-    Serial.println("Token & NO HP sudah ada");
-    displayOled("Token &   NO HP     sudah ada");
-    conditionMain = 4;
-  }
-  delay(5000);
-
-  if (conditionMain != 3)
-  {
+    displayOled("Akses ke: SmartCam  Wifi");
     if (setupWifi())
     {
       Serial.println("terhubung wifi");
@@ -159,14 +159,14 @@ void setup()
     else
     {
       Serial.println("tidak terhubung wifi");
-      displayOled("tidak    terhubung wifi");
+      displayOled("Gagal    coba lagi");
     }
     delay(5000);
     setupTelegram();
-    if (conditionMain != 4)
+    if (condition_main != 4)
     {
       setupWebsite();
-      while (webCondition)
+      while (web_condition)
       {
         displayOled("Akses ke: " + ip);
         executeWebsite();
@@ -176,23 +176,21 @@ void setup()
   displayOled("Selesai & masuk     sleep");
   delay(5000);
   display.dim(true);
+  last_time = millis();
   modeSleep();
 }
 
 void loop()
 {
-  if (isReset)
-  {
-    resetAll();
-  }
-
-  afterConfiguration();
+  mainProgram();
 }
 // --- Wifi ---
 bool setupWifi()
 {
   WiFi.mode(WIFI_STA);
-  return wm.autoConnect("SmartCam Wifi");
+  bool res;
+  res = wm.autoConnect("SmartCam Wifi");
+  return res;
 }
 
 // --- NVS ---
@@ -201,17 +199,18 @@ int setupNVS()
   int condition = 0;
   if (preferences.begin("telegram", false))
   {
-    nomorHandphone = preferences.getString("nomorHandphone", "0");
+    nomor_handphone = preferences.getString("nomor_handphone", "0");
+    bot_token = preferences.getString("bot_token", "0");
+    chat_id = preferences.getString("chat_id", "0");
 
-    if (nomorHandphone != "0")
+    if (nomor_handphone != "0")
     {
       condition = 3;
-    }
-    botToken = preferences.getString("botToken", "0");
-    chatID = preferences.getString("chatID", "0");
-    if (condition == 3 && botToken != "0" && chatID != "0")
-    {
-      condition = 4;
+
+      if (bot_token != "0" && chat_id != "0")
+      {
+        condition = 4;
+      }
     }
   }
   else
@@ -222,21 +221,18 @@ int setupNVS()
   return condition;
 }
 
-bool saveBotTelegram(bool saveAll)
+bool saveBotTelegram(String nomor_handphone, String token = "", String chat_id = "")
 {
   bool condition = false;
   if (preferences.begin("telegram", false))
   {
-    if (saveAll)
+    preferences.putString("nomor_handphone", nomor_handphone);
+
+    if (token != "" && chat_id != "")
     {
-      preferences.putString("botToken", botToken);
-      preferences.putString("chatID", chatID);
+      preferences.putString("bot_token", token);
+      preferences.putString("chat_id", chat_id);
     }
-    else
-    {
-      Serial.println("berhasil menyimpan nomor handphone");
-    }
-    preferences.putString("nomorHandphone", nomorHandphone);
     condition = true;
   }
   else
@@ -253,24 +249,8 @@ bool deleteTelegram()
   bool condition = false;
   if (preferences.begin("telegram", false))
   {
-    if (conditionMain == 3)
-    {
-      if (preferences.isKey("nomorHandphone"))
-      {
-        preferences.remove("nomorHandphone");
-        condition = true;
-      }
-    }
-    else if (conditionMain == 4)
-    {
-      if (preferences.isKey("botToken") && preferences.isKey("chatID") && preferences.isKey("nomorHandphone"))
-      {
-        preferences.remove("botToken");
-        preferences.remove("chatID");
-        preferences.remove("nomorHandphone");
-        condition = true;
-      }
-    }
+    preferences.clear();
+    condition = true;
   }
   else
   {
@@ -293,27 +273,28 @@ void handleSubmit()
   {
     if (server.arg("onlyHandphone") == "true")
     {
-      nomorHandphone = server.arg("nomorHandphone");
+      nomor_handphone = server.arg("nomorHandphone");
       if (server.arg("remember") == "true")
       {
-        if (saveBotTelegram(false))
+        if (saveBotTelegram(nomor_handphone))
         {
           server.send(200, "application/json", "{\"status\": \"1\"}");
-          displayOled("Nomor HP  tersimpan");
+          displayOled("");
+          displayOled("Nomor HP  ada dan   menyimpan");
         }
         else
         {
           server.send(200, "application/json", "{\"status\": \"2\"}");
-          displayOled("Nomor HP  gagal      tersimpan");
+          displayOled("Nomor HP  ada dan   gagal     menyimpan");
         }
       }
       else
       {
         server.send(200, "application/json", "{\"status\": \"3\"}");
-        displayOled("Nomor HP  tidak      tersimpan");
+        displayOled("Nomor HP  ada dan   tidak     menyimpan");
       }
-      webCondition = false;
-      conditionMain = 3;
+      web_condition = false;
+      condition_main = 3;
       server.close();
     }
 
@@ -322,29 +303,29 @@ void handleSubmit()
       String token = server.arg("botToken");
       if (checkTelegram(token))
       {
-        botToken = token;
-        chatID = server.arg("chatID");
-        nomorHandphone = server.arg("nomorHandphone");
+        bot_token = token;
+        chat_id = server.arg("chatID");
+        nomor_handphone = server.arg("nomorHandphone");
         if (server.arg("remember") == "true")
         {
-          if (saveBotTelegram(true))
+          if (saveBotTelegram(nomor_handphone, bot_token, chat_id))
           {
             server.send(200, "application/json", "{\"status\": \"4\"}");
-            displayOled("Token &   Nomor HP  tersimpan");
+            displayOled("Token &   Nomor HP  menyimpan");
           }
           else
           {
             server.send(200, "application/json", "{\"status\": \"5\"}");
-            displayOled("Token &   Nomor HP  gagal     tersimpan");
+            displayOled("Token &   Nomor HP  gagal     menyimpan");
           }
         }
         else
         {
           server.send(200, "application/json", "{\"status\": \"6\"}");
-          displayOled("Token &   Nomor HP  tidak     tersimpan");
+          displayOled("Token &   Nomor HP  tidak     menyimpan");
         }
-        webCondition = false;
-        conditionMain = 4;
+        web_condition = false;
+        condition_main = 4;
         server.close();
       }
       else
@@ -399,15 +380,15 @@ String sendPhoToTelegram(camera_fb_t *fb)
 
   frame2jpg(fb, 80, &fbBuf, &fbLen);
 
-  String head = "--RandomNerdTutorials\r\nContent-Disposition: form-data; name=\"chat_id\"; \r\n\r\n" + chatID + "\r\n--RandomNerdTutorials\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"esp32-cam.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n";
+  String head = "--RandomNerdTutorials\r\nContent-Disposition: form-data; name=\"chat_id\"; \r\n\r\n" + chat_id + "\r\n--RandomNerdTutorials\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"esp32-cam.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n";
   String tail = "\r\n--RandomNerdTutorials--\r\n";
 
   size_t imageLen = fbLen;
   size_t extraLen = head.length() + tail.length();
   size_t totalLen = imageLen + extraLen;
 
-  client.println("POST /bot" + botToken + "/sendPhoto HTTP/1.1");
-  client.println("Host: " + String(myDomain));
+  client.println("POST /bot" + bot_token + "/sendPhoto HTTP/1.1");
+  client.println("Host: " + String(TELEGRAM_DOMAIN));
   client.println("Content-Length: " + String(totalLen));
   client.println("Content-Type: multipart/form-data; boundary=RandomNerdTutorials");
   client.println();
@@ -432,7 +413,7 @@ String sendPhoToTelegram(camera_fb_t *fb)
   long startTimer = millis();
   boolean state = false;
 
-  while ((startTimer + interval) > millis())
+  while ((startTimer + INTERVAL) > millis())
   {
     Serial.print(".");
     delay(100);
@@ -462,22 +443,28 @@ String sendPhoToTelegram(camera_fb_t *fb)
 
 bool checkAPITelegram()
 {
-  Serial.println("Connect to " + String(myDomain));
-  return client.connect(myDomain, 443);
+  Serial.println("Connect to " + String(TELEGRAM_DOMAIN));
+  return client.connect(TELEGRAM_DOMAIN, 443);
 }
 
 // --- Radar ---
 void setupRadar()
 {
   // Set GPIO as Input
-  pinMode(radarPin, INPUT_PULLDOWN);
+  pinMode(RADAR_PIN, INPUT_PULLDOWN);
 }
 
 // oled
 void setupOLED()
 {
   Wire.begin(41, 42);
-  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
+  { // Address 0x3D for 128x64
+    Serial.println(F("SSD1306 allocation failed"));
+    for (;;)
+      ;
+  }
+  delay(2000);
   display.clearDisplay();
   display.setTextSize(2);
   display.setTextColor(WHITE);
@@ -485,9 +472,9 @@ void setupOLED()
 
 void displayOled(String sentance)
 {
-  if (sentance != lastSentance)
+  if (sentance != last_sentance)
   {
-    lastSentance = sentance;
+    last_sentance = sentance;
     display.clearDisplay();
     display.setCursor(0, 0);
     display.print(sentance);
@@ -498,61 +485,48 @@ void displayOled(String sentance)
 // reset all
 void setupButton()
 {
-  pinMode(buttonPin, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(buttonPin), handleButtonInterrupt, FALLING); // Interrupt pada saat tombol ditekan (FALLING edge)
-}
-
-void IRAM_ATTR handleButtonInterrupt()
-{
-  isReset = true;
+  pinMode(Button_PIN, INPUT);
 }
 
 void resetAll()
 {
-  display.dim(false);
-  if (conditionMain >= 3)
+  if (condition_main >= 3)
   {
-    if (deleteTelegram())
+    deleteTelegram();
+    if (condition_main == 3)
     {
-      if (conditionMain == 3)
-      {
-        Serial.println("Berhasil reset NO HP !");
-        displayOled("Berhasil  reset      NO HP !");
-      }
-      else if (conditionMain == 4)
-      {
-        Serial.println("Berhasil reset token & no HP !");
-        displayOled("Berhasil  reset token &   NO HP !");
-      }
+      displayOled("Nomor      handphone berhasil  dihapus");
+      Serial.println("Nomor handphone berhasil  dihapus");
+    }
+    else if (condition_main == 4)
+    {
+      displayOled("Nomor  &  telegram  berhasil  dihapus");
+      Serial.println("Nomor & telegram berhasil dihapus");
     }
   }
   delay(5000);
   displayOled("Reset wifi");
+  Serial.println("Reset wifi");
   wm.resetSettings();
   displayOled("Restarting...");
-  delay(5000);
+  Serial.println("Restarting...");
+  delay(3000);
   ESP.restart();
 }
 
 void modeSleep()
 {
   Serial.println("Masuk ke mode light sleep");
-  esp_sleep_enable_ext0_wakeup(GPIO_NUM_20, 1);
-  delay(interval * 10);
+  gpio_wakeup_enable(RADAR_PIN, GPIO_INTR_HIGH_LEVEL);
+  esp_sleep_enable_gpio_wakeup();
+  delay(INTERVAL * 10);
   esp_light_sleep_start();
 }
 
-void afterConfiguration()
+void mainProgram()
 {
-  if (disableSleep)
-  {
-    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_EXT0);
-    Serial.println("disable sleep");
-    digitalWrite(ledPin, HIGH);
-    disableSleep = false;
-  }
   Serial.println("sedang medeteksi orang");
-
+  digitalWrite(LED_PIN, HIGH);
   // capture picture
   if (!camera.capture().isOk())
   {
@@ -574,11 +548,11 @@ void afterConfiguration()
     Serial.print(personDetection.tf.benchmark.millis());
     Serial.println("ms");
 
-    if (conditionMain == 3)
+    if (condition_main == 3)
     {
-      Serial.println("kirim pesan condition main 3");
+      Serial.println("kirim sms condition main 3");
     }
-    else if (conditionMain == 4)
+    else if (condition_main == 4)
     {
       Serial.println("kirim pesan condition main 4");
 
@@ -589,21 +563,19 @@ void afterConfiguration()
       }
       else
       {
-        Serial.println("kirim pesan condition main 4");
+        Serial.println("kirim sms condition main 4");
       }
     }
-    disableSleep = true;
-    digitalWrite(ledPin, LOW);
-    lastTime = millis();
+    digitalWrite(LED_PIN, LOW);
+    last_time = millis();
     modeSleep();
   }
 
   long time = millis();
-  if (time >= lastTime + interval * 120)
+  if (time >= last_time + INTERVAL * 120)
   {
-    disableSleep = true;
-    digitalWrite(ledPin, LOW);
-    lastTime = time;
+    digitalWrite(LED_PIN, LOW);
+    last_time = time;
     modeSleep();
   }
 }

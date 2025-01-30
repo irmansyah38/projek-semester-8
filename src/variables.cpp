@@ -1,5 +1,27 @@
+#include <Arduino.h>
 #include <pgmspace.h>
 #include "variables.h" // Sertakan file header
+
+int condition_main = 0;
+
+// wifi
+String ip;
+
+// oled
+String last_sentance;
+
+// telegram
+String bot_token;
+String chat_id;
+
+// disable sleep
+unsigned long last_time;
+
+// website
+bool web_condition = true;
+
+// nomor handphone
+String nomor_handphone;
 
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
