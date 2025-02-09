@@ -25,6 +25,10 @@
 // led
 #define LED_PIN GPIO_NUM_2
 
+// sim800l
+#define SIM800L_RX_PIN GPIO_NUM_46
+#define SIM800L_TX_PIN GPIO_NUM_3
+
 // kondisi esp
 extern int condition_main;
 

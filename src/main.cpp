@@ -18,6 +18,7 @@
 #include <eloquent_esp32cam.h>
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_GFX.h>
+#include <HardwareSerial.h>
 
 using eloq::camera;
 using eloq::tinyml::zoo::personDetection;
@@ -29,6 +30,7 @@ WiFiClientSecure client;
 UniversalTelegramBot bot("", client);
 Preferences preferences;
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+HardwareSerial sim800l(1);
 
 // wifi
 bool setupWifi();
@@ -55,6 +57,10 @@ bool checkAPITelegram();
 // sensor Radar
 void setupRadar();
 
+// SMS
+bool checkSMSNetwork();
+void sendSMS(String, String);
+
 // tombol
 void setupButton();
 void resetAll();
@@ -68,6 +74,7 @@ void mainProgram();
 void setup()
 {
   Serial.begin(115200);
+  sim800l.begin(9600, SERIAL_8N1, SIM800L_RX_PIN, SIM800L_TX_PIN); // Inisialisasi SIM800L pada UART1
   pinMode(LED_PIN, OUTPUT);
   setupRadar();
   setupOLED();
@@ -482,6 +489,55 @@ void displayOled(String sentance)
   }
 }
 
+// sms
+bool checkSMSNetwork()
+{
+  String res;
+  sim800l.println("AT");
+  delay(1000);
+  while (sim800l.available())
+  {
+    res = sim800l.read();
+    Serial.println(res);
+  }
+
+  if (res != "ok")
+  {
+    return false;
+  }
+
+  // Set mode teks untuk SMS
+  sim800l.println("AT+CMGF=1");
+  delay(1000);
+  while (sim800l.available())
+  {
+    res = sim800l.read();
+    Serial.println(res);
+  }
+
+  if (res != "ok")
+  {
+    return false;
+  }
+
+  Serial.println("Terkoneksi sms");
+  return true;
+}
+
+void sendSMS(String nomorHandphone, String message)
+{
+  sim800l.print("AT+CMGS=\"");
+  sim800l.print(nomorHandphone);
+  sim800l.println("\"");
+  delay(1000);
+
+  sim800l.print(message);
+  sim800l.write(26); // Kirim CTRL+Z untuk mengakhiri pesan
+  delay(1000);
+
+  Serial.println("SMS Sent!");
+}
+
 // reset all
 void setupButton()
 {
@@ -550,7 +606,11 @@ void mainProgram()
 
     if (condition_main == 3)
     {
-      Serial.println("kirim sms condition main 3");
+      // Serial.println("kirim sms condition main 3");
+      if (checkSMSNetwork())
+      {
+        sendSMS(nomor_handphone, "aya maling");
+      }
     }
     else if (condition_main == 4)
     {
@@ -563,7 +623,10 @@ void mainProgram()
       }
       else
       {
-        Serial.println("kirim sms condition main 4");
+        if (checkSMSNetwork())
+        {
+          sendSMS(nomor_handphone, "aya maling");
+        }
       }
     }
     digitalWrite(LED_PIN, LOW);
