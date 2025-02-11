@@ -10,9 +10,11 @@
 #include <eloquent_tinyml.h>
 #include <eloquent_tinyml/zoo/person_detection.h>
 #include <eloquent_esp32cam.h>
+#include <eloquent_esp32cam/motion/detection.h>
 #include <Arduino.h>
 
 using eloq::camera;
+using eloq::motion::detection;
 using eloq::tinyml::zoo::personDetection;
 
 // telegram
@@ -53,15 +55,20 @@ void setup()
 {
   Serial.begin(115200);
   pinMode(ledPin, OUTPUT);
-  setupRadar();
   // setupButton();
   // camera settings
   // replace with your own model!
   camera.pinout.freenove_s3();
   camera.brownout.disable();
-  // only works on 96x96 (yolo) grayscale images
-  camera.resolution.yolo();
-  camera.pixformat.gray();
+  camera.resolution.vga();
+  camera.quality.high();
+
+  // see example of motion detection for config values
+  detection.skip(5);
+  detection.stride(1);
+  detection.threshold(5);
+  detection.ratio(0.2);
+  detection.rate.atMostOnceEvery(5).seconds();
 
   // init camera
   while (!camera.begin().isOk())
@@ -84,18 +91,66 @@ void setup()
   }
   Serial.println(WiFi.localIP());
   setupTelegram();
-
-  delay(5000);
-  modeSleep();
 }
 
 void loop()
 {
-  // if (is_reset)
-  // {
-  //   reset();
-  // }
-  afterConfiguration();
+
+  // afterConfiguration();
+
+  // capture picture
+  if (!camera.capture().isOk())
+  {
+    Serial.println(camera.exception.toString());
+    return;
+  }
+
+  // run motion detection
+  if (!detection.run().isOk())
+  {
+    Serial.println(detection.exception.toString());
+    return;
+  }
+
+  if (detection.triggered())
+  {
+    Serial.printf(
+        "Motion detected on frame of size %dx%d (%d bytes)\n",
+        camera.resolution.getWidth(),
+        camera.resolution.getHeight(),
+        camera.getSizeInBytes());
+
+    Serial.println("Taking photo of motion at higher resolution");
+
+    camera.resolution.at(FRAMESIZE_96X96, []()
+                         {
+                           camera.pixformat.gray();
+                           camera.capture();
+
+                           if (!personDetection.run(camera).isOk())
+                           {
+                             Serial.println(personDetection.exception.toString());
+                             return;
+                           }
+
+                           // a person has been detected!
+                           if (personDetection)
+                           {
+                             if (checkAPITelegram())
+                             {
+                               sendPhoToTelegram(camera.frame);
+                             }
+                             else
+                             {
+                               Serial.println("tidak mengirim gambar");
+                             }
+                           }
+
+                           camera.pixformat.jpeg();
+                         });
+
+    Serial.println("Resolution switched back to VGA");
+  }
 }
 
 // --- Telegram ---

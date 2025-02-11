@@ -14,8 +14,8 @@
 using eloq::camera;
 using eloq::tinyml::zoo::personDetection;
 
-
-void setup() {
+void setup()
+{
     delay(3000);
     Serial.begin(115200);
     Serial.println("__PERSON DETECTION__");
@@ -40,23 +40,27 @@ void setup() {
     Serial.println("Point the camera to yourself");
 }
 
-void loop() {
+void loop()
+{
     Serial.println("Loop");
 
     // capture picture
-    if (!camera.capture().isOk()) {
+    if (!camera.capture().isOk())
+    {
         Serial.println(camera.exception.toString());
         return;
     }
 
     // run person detection
-    if (!personDetection.run(camera).isOk()) {
+    if (!personDetection.run(camera).isOk())
+    {
         Serial.println(personDetection.exception.toString());
         return;
     }
 
     // a person has been detected!
-    if (personDetection) {
+    if (personDetection)
+    {
         Serial.print("Person detected in ");
         Serial.print(personDetection.tf.benchmark.millis());
         Serial.println("ms");
